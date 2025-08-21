@@ -121,3 +121,101 @@ kubectl get nodes -l nvidia.com/gpu.present=true
 # ตรวจสอบ GPU resources
 kubectl describe nodes | grep -A 10 "Allocatable:" | grep nvidia.com/gpu
 ```
+
+# ตรวจสอบ NVIDIA Driver DaemonSet และการทำงานของ GPU บน Kubernetes
+
+## 1. ตรวจสอบ DaemonSet ของ NVIDIA Driver
+
+ใช้คำสั่งด้านล่างเพื่อตรวจสอบว่า Pod ของ `nvidia-driver-daemonset` ถูกสร้างและทำงานอยู่หรือไม่:
+
+```bash
+kubectl get pods -A | grep 'nvidia-driver-daemonset'
+```
+
+**ผลลัพธ์ที่คาดหวัง (ตัวอย่าง):**
+
+```
+gpu-operator-resources   nvidia-driver-daemonset-mpgnt   2/2     Running   0          5m
+gpu-operator-resources   nvidia-driver-daemonset-xk2p9   2/2     Running   0          5m
+```
+
+* **Namespace**: `gpu-operator-resources`
+* **สถานะ**: `Running` (หากไม่ใช่ อาจต้องตรวจสอบ log เพิ่มเติม)
+
+---
+
+## 2. รัน `nvidia-smi` ผ่าน Container
+
+เพื่อยืนยันว่า NVIDIA driver ถูกติดตั้งและ GPU สามารถใช้งานได้ ใช้คำสั่งนี้:
+
+```bash
+kubectl exec -n gpu-operator-resources -it nvidia-driver-daemonset-mpgnt -c nvidia-driver-ctr -- nvidia-smi
+```
+
+**ผลลัพธ์ที่คาดหวัง (ตัวอย่าง):**
+
+```
+Tue Aug 20 08:35:11 2024
++-----------------------------------------------------------------------------+
+| NVIDIA-SMI 535.54.03    Driver Version: 535.54.03    CUDA Version: 12.2     |
+|-------------------------------+----------------------+----------------------+
+| GPU  Name        Persistence-M| Bus-Id        Disp.A | Volatile Uncorr. ECC |
+| Fan  Temp  Perf  Pwr:Usage/Cap|         Memory-Usage | GPU-Util  Compute M. |
+|===============================+======================+======================|
+|  0  Tesla T4            Off  | 00000000:00:1E.0 Off |                    0 |
+| N/A   45C    P8     9W /  70W |      0MiB / 15360MiB |      0%      Default |
++-----------------------------------------------------------------------------+
+```
+
+---
+
+## 3. Troubleshooting
+
+หากพบปัญหา:
+
+* ตรวจสอบรายละเอียด Pod:
+
+  ```bash
+  kubectl describe pod -n gpu-operator-resources <pod-name>
+  ```
+* ดู log ของ container:
+
+  ```bash
+  kubectl logs -n gpu-operator-resources <pod-name> -c nvidia-driver-ctr
+  ```
+* ตรวจสอบว่า Node GPU worker มีการ์ด NVIDIA GPU จริง
+  (เช่น บน AWS instance `g4dn.xlarge` จะมี **NVIDIA T4**)
+
+---
+
+### 3.4 ตรวจสอบการติดตั้ง GPU Operator
+เพื่อให้แน่ใจว่าส่วนประกอบทั้งหมดของ GPU Operator ทำงานอย่างถูกต้อง ให้ตรวจสอบสถานะของ Pods ทั้งหมดใน namespace ของ GPU Operator [1].
+
+```bash
+kubectl get pods -n gpu-operator-resources
+```
+
+**ผลลัพธ์ที่คาดหวัง (ตัวอย่าง):**
+คุณควรจะเห็น Pods หลักๆ ทั้งหมดอยู่ในสถานะ `Running` หรือ `Completed`
+
+```NAME                                                          READY   STATUS      RESTARTS   AGE
+gpu-feature-discovery-s876d                                   1/1     Running     0          10m
+nvidia-container-toolkit-daemonset-hms7l                      1/1     Running     0          10m
+nvidia-dcgm-exporter-sf74v                                    1/1     Running     0          10m
+nvidia-device-plugin-daemonset-xzp6w                          1/1     Running     0          10m
+nvidia-driver-daemonset-mpgnt                                 2/2     Running     0          10m
+```
+
+*   **`gpu-feature-discovery`**: ทำหน้าที่ตรวจสอบและติดป้าย (label) ให้กับ Node ที่มีการ์ดจอ GPU [1].
+*   **`nvidia-container-toolkit-daemonset`**: ติดตั้งเครื่องมือที่จำเป็นเพื่อให้ Container Runtime (เช่น Docker, containerd) สามารถใช้งาน GPU ได้ [11].
+*   **`nvidia-device-plugin-daemonset`**: ประกาศจำนวน GPU ที่พร้อมใช้งานบน Node ให้ Kubernetes ทราบ [1].
+*   **`nvidia-driver-daemonset`**: ติดตั้ง NVIDIA driver บน Node [9].
+*   **`nvidia-dcgm-exporter`**: (ถ้ามี) รวบรวมเมตริก (metrics) จาก GPU เพื่อใช้ในการ Monitoring.
+
+หาก Pod ใดมีปัญหา ให้ใช้คำสั่ง `kubectl logs` และ `kubectl describe pod` ใน Section 3 เพื่อตรวจสอบสาเหตุต่อไป
+
+## 4. อ้างอิง
+
+* [NVIDIA GPU Operator](https://docs.nvidia.com/datacenter/cloud-native/gpu-operator/overview.html)
+* [NVIDIA Kubernetes Device Plugin](https://github.com/NVIDIA/k8s-device-plugin)
+```
