@@ -218,4 +218,3 @@ nvidia-driver-daemonset-mpgnt                                 2/2     Running   
 
 * [NVIDIA GPU Operator](https://docs.nvidia.com/datacenter/cloud-native/gpu-operator/overview.html)
 * [NVIDIA Kubernetes Device Plugin](https://github.com/NVIDIA/k8s-device-plugin)
-```
